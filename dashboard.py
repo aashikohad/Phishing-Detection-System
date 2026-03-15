@@ -1,6 +1,11 @@
 import streamlit as st
 import requests
 import pandas as pd
+# --- NEW IMPORTS ---
+import io
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table
+from reportlab.lib.styles import getSampleStyleSheet
+# -------------------
 
 API_URL = "http://127.0.0.1:5000"
 
@@ -9,178 +14,201 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title(" Adaptive Phishing Detection SOC Dashboard")
-st.caption("User identity is generated using device fingerprinting.")
+st.title("🛡 Adaptive Phishing Detection SOC Dashboard")
+st.caption("Real-time monitoring of phishing detection events.")
 
 # -----------------------------
-# USER INPUT PANEL
+# REFRESH BUTTON
 # -----------------------------
 
-st.sidebar.header("User Activity Simulation")
+if st.button("🔄 Refresh Dashboard"):
+    st.rerun()
 
-user_name = st.sidebar.text_input("User Name", "user1")
-
-login_hour = st.sidebar.slider("Login Hour", 0, 23)
-
-device_id = st.sidebar.text_input(
-    "Device ID",
-    "android-SM_G991B-8f3a92d1"
-)
-
-# Generate unique fingerprint
-fingerprint = user_name + device_id
-user_id = abs(hash(fingerprint)) % 10000
-
-st.sidebar.info(f"Generated User ID: {user_id}")
-
-payload = st.sidebar.text_area(
-    "Email Content",
-    height=200
-)
+st.divider()
 
 # -----------------------------
-# THREAT EVALUATION
+# FETCH INCIDENT DATA
 # -----------------------------
-
-if st.sidebar.button(" Evaluate Threat"):
-
-    data = {
-        "user_id": int(user_id),
-        "login_hour": int(login_hour),
-        "device_id": device_id,
-        "payload": payload
-    }
-
-    try:
-
-        r = requests.post(f"{API_URL}/api/v1/evaluate", json=data)
-
-        result = r.json()
-
-        col1, col2, col3 = st.columns(3)
-
-        col1.metric("Risk Score", result["risk_score"])
-        col2.metric("Risk Level", result["risk_level"])
-        col3.metric("Login Hour", login_hour)
-
-        if result["risk_level"] == "HIGH":
-            st.error("🚨 HIGH RISK PHISHING ATTACK DETECTED")
-
-        elif result["risk_level"] == "MEDIUM":
-            st.warning("⚠ Suspicious Activity Detected")
-
-        else:
-            st.success("✅ Activity appears safe")
-
-        st.subheader("🔍 Detection Signals")
-
-        st.json(result["signals"])
-
-    except:
-        st.error("Backend API is not reachable.")
-
-# -----------------------------
-# INCIDENT MONITORING
-# -----------------------------
-
-st.subheader(" Security Event Logs")
 
 try:
+    response = requests.get(f"{API_URL}/api/v1/incidents")
+    df = pd.DataFrame(response.json())
 
-    r = requests.get(f"{API_URL}/api/v1/incidents")
+    # -----------------------------
+    # HANDLE EMPTY DATA
+    # -----------------------------
 
-    df = pd.DataFrame(r.json())
+    if df.empty:
+        st.info("No security events recorded yet.")
+        st.stop()
 
-    if len(df) > 0:
+    # -----------------------------
+    # DATA CLEANING
+    # -----------------------------
 
-        # Metrics
-        col1, col2, col3 = st.columns(3)
+    if "risk_score" in df.columns:
+        df["risk_score"] = pd.to_numeric(df["risk_score"], errors="coerce")
 
-        col1.metric("Total Events", len(df))
+    if "timestamp" in df.columns:
+        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
 
-        high_count = len(df[df["risk_level"] == "HIGH"])
-        col2.metric("High Risk Attacks", high_count)
+    df = df.dropna(subset=["risk_score"])
 
-        medium_count = len(df[df["risk_level"] == "MEDIUM"])
-        col3.metric("Medium Risk Events", medium_count)
+    # -----------------------------
+    # METRICS
+    # -----------------------------
 
-        # Sort by time
-        if "timestamp" in df.columns:
-            df = df.sort_values(by="timestamp", ascending=False)
+    st.subheader("Threat Overview")
+    col1, col2, col3, col4 = st.columns(4)
 
-        # -----------------------------
-        # Severity coloring
-        # -----------------------------
+    total_events = len(df)
+    high_count = len(df[df["risk_level"] == "HIGH"])
+    medium_count = len(df[df["risk_level"] == "MEDIUM"])
+    low_count = len(df[df["risk_level"] == "LOW"])
 
-        def highlight_risk(val):
+    col1.metric("Total Events", total_events)
+    col2.metric("High Risk", high_count)
+    col3.metric("Medium Risk", medium_count)
+    col4.metric("Low Risk", low_count)
 
-            if val == "HIGH":
-                return "background-color: red; color:white"
+    st.divider()
 
-            elif val == "MEDIUM":
-                return "background-color: orange"
+    # -----------------------------
+    # SECURITY EVENT LOG TABLE
+    # -----------------------------
 
-            elif val == "LOW":
-                return "background-color: lightgreen"
+    st.subheader("Security Event Logs")
 
-            return ""
+    if "timestamp" in df.columns:
+        df = df.sort_values(by="timestamp", ascending=False)
 
-        styled_df = df.style.applymap(
-            highlight_risk,
-            subset=["risk_level"]
-        )
+    def highlight_risk(val):
+        if val == "HIGH":
+            return "background-color:red;color:white"
+        elif val == "MEDIUM":
+            return "background-color:orange"
+        elif val == "LOW":
+            return "background-color:lightgreen"
+        return ""
 
-        st.dataframe(styled_df)
+    # Note: applymap is deprecated in newer pandas; use .map for element-wise
+    styled_df = df.style.applymap(highlight_risk, subset=["risk_level"])
+    st.dataframe(styled_df, use_container_width=True)
 
-        # -----------------------------
-        # Threat analytics
-        # -----------------------------
+    st.divider()
 
-        st.subheader("Threat Analytics")
+    # -----------------------------
+    # THREAT ANALYTICS
+    # -----------------------------
 
-        col1, col2 = st.columns(2)
+    st.subheader("Threat Analytics")
+    col1, col2 = st.columns(2)
 
-        # Risk score chart
+    if not df["risk_score"].empty:
+        col1.write("Risk Score Distribution")
         col1.bar_chart(df["risk_score"])
 
-        # Threat distribution
+    if "risk_level" in df.columns:
         risk_counts = df["risk_level"].value_counts()
+        if not risk_counts.empty:
+            col2.write("Threat Level Distribution")
+            col2.bar_chart(risk_counts)
 
-        col2.write("Threat Distribution")
-        col2.bar_chart(risk_counts)
+    st.divider()
 
-        # -----------------------------
-        # Attack timeline
-        # -----------------------------
+    # -----------------------------
+    # ATTACK TIMELINE
+    # -----------------------------
 
-        if "timestamp" in df.columns:
-
-            st.subheader(" Attack Timeline")
-
-            timeline = df.copy()
-
-            timeline["timestamp"] = pd.to_datetime(timeline["timestamp"])
-
+    if "timestamp" in df.columns:
+        st.subheader("Attack Timeline")
+        timeline = df.dropna(subset=["timestamp", "risk_score"])
+        if not timeline.empty:
             timeline = timeline.sort_values("timestamp")
-
             timeline = timeline.set_index("timestamp")
-
             st.line_chart(timeline["risk_score"])
 
-        # -----------------------------
-        # Top attacked users
-        # -----------------------------
+    st.divider()
 
-        st.subheader("Most Targeted Users")
+    # -----------------------------
+    # MOST TARGETED USERS
+    # -----------------------------
 
+    st.subheader("Most Targeted Users")
+    if "user_id" in df.columns:
         user_counts = df["user_id"].value_counts().head(5)
+        if not user_counts.empty:
+            st.bar_chart(user_counts)
 
-        st.bar_chart(user_counts)
+    # ---------------------------------------------------------
+    # NEW: SECURITY REPORT GENERATION (Inside the try block)
+    # ---------------------------------------------------------
+    
+    st.divider()
+    st.subheader("Security Report")
 
-    else:
+    def generate_pdf_report(df):
+        buffer = io.BytesIO()
+        styles = getSampleStyleSheet()
+        elements = []
 
-        st.info("No security events recorded yet.")
+        elements.append(Paragraph("Adaptive Phishing Detection SOC Report", styles['Title']))
+        elements.append(Spacer(1, 20))
 
-except:
+        t_events = len(df)
+        h_attacks = len(df[df["risk_level"] == "HIGH"])
+        m_attacks = len(df[df["risk_level"] == "MEDIUM"])
+        l_attacks = len(df[df["risk_level"] == "LOW"])
 
-    st.warning("Could not fetch security events. Check if API server is running.")
+        elements.append(Paragraph(f"Total Events: {t_events}", styles['Normal']))
+        elements.append(Paragraph(f"High Risk Attacks: {h_attacks}", styles['Normal']))
+        elements.append(Paragraph(f"Medium Risk Attacks: {m_attacks}", styles['Normal']))
+        elements.append(Paragraph(f"Low Risk Events: {l_attacks}", styles['Normal']))
+        elements.append(Spacer(1, 20))
+
+        # Top users
+        if "user_id" in df.columns:
+            top_users = df["user_id"].value_counts().head(5)
+            user_data = [["User ID", "Attack Count"]]
+            for user, count in top_users.items():
+                user_data.append([str(user), str(count)])
+            elements.append(Paragraph("Most Targeted Users", styles['Heading2']))
+            elements.append(Table(user_data))
+            elements.append(Spacer(1, 20))
+
+        # Top IPs
+        if "source_ip" in df.columns:
+            top_ips = df["source_ip"].value_counts().head(5)
+            ip_data = [["Source IP", "Attack Count"]]
+            for ip, count in top_ips.items():
+                ip_data.append([str(ip), str(count)])
+            elements.append(Paragraph("Top Attacking Source IPs", styles['Heading2']))
+            elements.append(Table(ip_data))
+            elements.append(Spacer(1, 20))
+
+        # Devices
+        if "device_id" in df.columns:
+            top_devices = df["device_id"].value_counts().head(5)
+            device_data = [["Device", "Events"]]
+            for dev, count in top_devices.items():
+                device_data.append([str(dev), str(count)])
+            elements.append(Paragraph("Most Used Devices", styles['Heading2']))
+            elements.append(Table(device_data))
+
+        doc = SimpleDocTemplate(buffer)
+        doc.build(elements)
+        buffer.seek(0)
+        return buffer
+
+    if st.button("Generate PDF Security Report"):
+        pdf = generate_pdf_report(df)
+        st.download_button(
+            label="Download PDF Report",
+            data=pdf,
+            file_name="soc_security_report.pdf",
+            mime="application/pdf"
+        )
+
+except Exception as e:
+    st.error(f"Unable to fetch security events. Error: {e}")
+    st.info("Please ensure the backend API is running.")

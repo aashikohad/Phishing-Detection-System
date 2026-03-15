@@ -1,0 +1,24 @@
+[
+    {
+        "incident_id": 1,
+        "user_id": 726,
+        "device_id": "android-SM_G991B",
+        "email_content": "hello meet at 10am",
+        "source_ip": "192.168.1.5",
+        "destination_ip": "104.26.10.78",
+        "risk_score": 0.23,
+        "severity": "LOW",
+        "timestamp": "2026-03-14T19:02:09.360071"
+    },
+    {
+        "incident_id": 2,
+        "user_id": 726,
+        "device_id": "android-SM_G991B",
+        "email_content": "Received: from 185.203.119.45 by mail.example.com\nReceived: from 192.168.1.12 by gateway.example.com\n\nSubject: Urgent Account Verification\n\nYour bank account has been suspended due to suspicious activity.\n\nVerify your account immediately:\nhttp://secure-bank-login.xyz",
+        "source_ip": "192.168.1.5",
+        "destination_ip": "104.26.10.78",
+        "risk_score": 0.93,
+        "severity": "HIGH",
+        "timestamp": "2026-03-14T19:06:18.925143"
+    }
+]
